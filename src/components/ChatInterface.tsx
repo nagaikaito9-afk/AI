@@ -1,15 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Mic, Trash2, Edit2, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Message } from '../hooks/useAIGrowth';
 
 interface ChatInterfaceProps {
   messages: Message[];
   onSendMessage: (text: string) => void;
+  onDeleteMessage?: (id: string) => void;
+  onEditMessage?: (id: string, newText: string) => void;
 }
 
-export const ChatInterface = ({ messages, onSendMessage }: ChatInterfaceProps) => {
+export const ChatInterface = ({ messages, onSendMessage, onDeleteMessage, onEditMessage }: ChatInterfaceProps) => {
   const [input, setInput] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -19,6 +23,15 @@ export const ChatInterface = ({ messages, onSendMessage }: ChatInterfaceProps) =
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const speakText = (text: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'ja-JP';
+      window.speechSynthesis.speak(utterance);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +65,132 @@ export const ChatInterface = ({ messages, onSendMessage }: ChatInterfaceProps) =
               lineHeight: '1.4'
             }}
           >
-            {msg.text}
+            {editingId === msg.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <textarea
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'rgba(0,0,0,0.2)',
+                    color: 'white',
+                    outline: 'none',
+                    resize: 'vertical',
+                    minHeight: '60px',
+                    fontFamily: 'inherit'
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                  <button
+                    onClick={() => setEditingId(null)}
+                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'background 0.2s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  ><X size={14} /></button>
+                  <button
+                    onClick={() => { onEditMessage?.(msg.id, editText); setEditingId(null); }}
+                    style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: 'white', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'background 0.2s' }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                  ><Check size={14} /></button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+            )}
+            
+            <div style={{ display: 'flex', justifyContent: msg.sender === 'ai' ? 'flex-start' : 'flex-end', marginTop: '0.5rem', gap: '0.5rem' }}>
+              {msg.sender === 'ai' && (
+                <button
+                  onClick={() => speakText(msg.text)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+                    e.currentTarget.style.background = 'none';
+                  }}
+                  title="読み上げる"
+                  aria-label="読み上げる"
+                >
+                  <Mic size={16} />
+                </button>
+              )}
+              {msg.sender === 'user' && !editingId && onEditMessage && (
+                <button
+                  onClick={() => { setEditingId(msg.id); setEditText(msg.text); }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'white';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+                    e.currentTarget.style.background = 'none';
+                  }}
+                  title="編集する"
+                  aria-label="編集する"
+                >
+                  <Edit2 size={16} />
+                </button>
+              )}
+              {!editingId && onDeleteMessage && (
+                <button
+                  onClick={() => onDeleteMessage(msg.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#ef4444';
+                    e.currentTarget.style.background = 'rgba(239,68,68,0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'rgba(255,255,255,0.5)';
+                    e.currentTarget.style.background = 'none';
+                  }}
+                  title="削除する"
+                  aria-label="削除する"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
           </motion.div>
         ))}
         <div ref={messagesEndRef} />

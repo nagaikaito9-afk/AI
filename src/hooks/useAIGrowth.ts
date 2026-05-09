@@ -207,22 +207,30 @@ const generateReply = (userText: string, memory: string[], newKeywords: string[]
 
 const searchWeb = async (query: string) => {
   try {
-    const res = await fetch(`https://ja.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`);
-    if (!res.ok) return [];
+    // 1. Search for the most relevant article using natural language matching
+    const searchRes = await fetch(`https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&utf8=&format=json&origin=*`);
+    const searchData = await searchRes.json();
     
-    const data = await res.json();
-    if (data.type === 'standard' && data.extract) {
-      return [{
-        title: data.title,
-        description: data.extract,
-        url: data.content_urls?.desktop?.page || ''
-      }];
-    } else if (data.type === 'disambiguation') {
+    if (!searchData.query || !searchData.query.search || searchData.query.search.length === 0) {
+       return [];
+    }
+    
+    const bestTitle = searchData.query.search[0].title;
+    
+    // 2. Fetch a detailed extract (up to 6 sentences) for a thorough explanation
+    const detailRes = await fetch(`https://ja.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=6&explaintext=&titles=${encodeURIComponent(bestTitle)}&format=json&origin=*`);
+    const detailData = await detailRes.json();
+    
+    const pages = detailData.query.pages;
+    const pageId = Object.keys(pages)[0];
+    const extract = pages[pageId].extract;
+    
+    if (extract) {
        return [{
-        title: data.title,
-        description: '複数の意味が存在する言葉です。もう少し具体的に教えていただけますか？',
-        url: data.content_urls?.desktop?.page || ''
-      }];
+         title: bestTitle,
+         description: extract,
+         url: `https://ja.wikipedia.org/wiki/${encodeURIComponent(bestTitle)}`
+       }];
     }
     return [];
   } catch (e) {
@@ -548,9 +556,9 @@ export const useAIGrowth = () => {
       
       if (results.length > 0) {
         const topResult = results[0];
-        replyText = `ウェブで調べてみました。\n\n『${topResult.title}』\n${topResult.description}\n\nとのことです。もっと詳しい情報が必要ですか？`;
+        replyText = `「${searchQuery}」について詳しくお調べしました。\n\n**【${topResult.title}】**\n${topResult.description}\n\nこの情報から、あなたの疑問は解決しましたでしょうか？さらに深く知りたいことがあれば教えてくださいね。`;
       } else {
-        replyText = `「${searchQuery}」について検索しましたが、有用な情報が見つかりませんでした。`;
+        replyText = `「${searchQuery}」について広範なデータベースを検索しましたが、有用な情報が見つかりませんでした。別の言葉や表現で試していただけますか？`;
       }
       
       setMessages(prev => prev.map(msg => msg.id === thinkingId ? {
@@ -586,10 +594,20 @@ export const useAIGrowth = () => {
     setAiState({ memory: [], mode: 'normal', shiritoriLastWord: '', shiritoriUsedWords: [], mathScope: {} });
   };
 
+  const deleteMessage = (id: string) => {
+    setMessages(prev => prev.filter(msg => msg.id !== id));
+  };
+
+  const editMessage = (id: string, newText: string) => {
+    setMessages(prev => prev.map(msg => msg.id === id ? { ...msg, text: newText } : msg));
+  };
+
   return {
     messages,
     aiState,
     sendMessage,
-    resetData
+    resetData,
+    deleteMessage,
+    editMessage
   };
 };

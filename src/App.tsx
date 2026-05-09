@@ -5,7 +5,7 @@ import { RotateCcw } from 'lucide-react';
 import './index.css';
 
 function App() {
-  const { messages, aiState, sendMessage, resetData } = useAIGrowth();
+  const { messages, aiState, sendMessage, resetData, deleteMessage, editMessage } = useAIGrowth();
 
   return (
     <div style={{
@@ -106,6 +106,8 @@ function App() {
           <ChatInterface 
             messages={messages} 
             onSendMessage={sendMessage}
+            onDeleteMessage={deleteMessage}
+            onEditMessage={editMessage}
           />
         </div>
       </div>
