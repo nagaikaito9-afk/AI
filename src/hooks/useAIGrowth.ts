@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { evaluate } from 'mathjs';
 
 export interface Message {
   id: string;
@@ -12,6 +13,7 @@ export interface AIState {
   mode: 'normal' | 'shiritori' | 'janken';
   shiritoriLastWord: string;
   shiritoriUsedWords: string[];
+  mathScope: Record<string, any>;
 }
 
 const STORAGE_KEY = 'smart_ai_save_data';
@@ -19,7 +21,7 @@ const STORAGE_KEY = 'smart_ai_save_data';
 const detectIntent = (text: string) => {
   if (text.match(/しりとり/)) return 'play_shiritori';
   if (text.match(/じゃんけん/)) return 'play_janken';
-  if (text.match(/(?:計算|[\d]+[\+\-\*\/][\d]+)/)) return 'math_calculation';
+  if (text.match(/(?:計算|[\d]+[\+\-\*\/\^][\d]+|√|ルート|平方根)/) || text.match(/[a-zA-Z]+\s*=\s*\d+/)) return 'math_calculation';
   if (text.match(/(?:今何時|日付|今日|時間|何月何日)/)) return 'time_query';
   if (text.match(/(?:あなたは誰|名前は|何ができる|何者)/)) return 'meta_question';
   if (text.match(/(?:検索|調べて|って何|とは|について教えて)/)) return 'search';
@@ -229,26 +231,36 @@ const searchWeb = async (query: string) => {
   }
 };
 
-const handleMathCalculation = (text: string): string | null => {
-  const match = text.replace(/ /g, '').match(/(-?\d+(?:\.\d+)?)([\+\-\*\/])(-?\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  
-  const num1 = parseFloat(match[1]);
-  const op = match[2];
-  const num2 = parseFloat(match[3]);
-  
-  let result = 0;
-  switch (op) {
-    case '+': result = num1 + num2; break;
-    case '-': result = num1 - num2; break;
-    case '*': result = num1 * num2; break;
-    case '/': 
-      if (num2 === 0) return "ゼロで割ることはできませんよ！";
-      result = num1 / num2; 
-      break;
+const handleMathCalculation = (text: string, scope: Record<string, any>): string | null => {
+  try {
+    let exp = text
+      .replace(/は？|は|の計算|計算して|教えて|って何|？|\?/g, '')
+      .replace(/×/g, '*')
+      .replace(/÷/g, '/')
+      .replace(/ルート|平方根/g, 'sqrt')
+      .replace(/√\s*(\d+(\.\d+)?)/g, 'sqrt($1)')
+      .replace(/の階乗|階乗/g, '!')
+      .replace(/サイン/g, 'sin')
+      .replace(/コサイン/g, 'cos')
+      .replace(/タンジェント/g, 'tan')
+      .replace(/円周率|パイ/g, 'pi')
+      .replace(/(sin|cos|tan)\s*\(\s*([\d\.]+)\s*\)/g, '$1($2 deg)') // Convert trig to degrees
+      .replace(/(sin|cos|tan)\s+([\d\.]+)/g, '$1($2 deg)')
+      .trim();
+
+    const result = evaluate(exp, scope);
+    
+    // Prevent empty evaluations from normal words
+    if (result === undefined || typeof result === 'function') return null;
+
+    if (exp.includes('=')) {
+      return `変数に値を記憶しました！ (${exp})`;
+    }
+    
+    return `計算結果は **${result}** です。`;
+  } catch (e) {
+    return null;
   }
-  
-  return `計算結果は **${result}** です。`;
 };
 
 export const useAIGrowth = () => {
@@ -284,14 +296,15 @@ export const useAIGrowth = () => {
             memory: parsed.memory,
             mode: parsed.mode || 'normal',
             shiritoriLastWord: parsed.shiritoriLastWord || '',
-            shiritoriUsedWords: parsed.shiritoriUsedWords || []
+            shiritoriUsedWords: parsed.shiritoriUsedWords || [],
+            mathScope: parsed.mathScope || {}
           };
         }
       } catch (e) {
         console.error("Save load error", e);
       }
     }
-    return { memory: [], mode: 'normal', shiritoriLastWord: '', shiritoriUsedWords: [] };
+    return { memory: [], mode: 'normal', shiritoriLastWord: '', shiritoriUsedWords: [], mathScope: {} };
   });
 
   useEffect(() => {
@@ -300,7 +313,8 @@ export const useAIGrowth = () => {
       memory: aiState.memory,
       mode: aiState.mode,
       shiritoriLastWord: aiState.shiritoriLastWord,
-      shiritoriUsedWords: aiState.shiritoriUsedWords
+      shiritoriUsedWords: aiState.shiritoriUsedWords,
+      mathScope: aiState.mathScope
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
   }, [messages, aiState]);
@@ -473,20 +487,20 @@ export const useAIGrowth = () => {
       return;
     }
 
-    // Math calculation
-    if (intent === 'math_calculation') {
-      const result = handleMathCalculation(text);
-      if (result) {
-        setTimeout(() => {
-          setMessages(prev => [...prev, {
-            id: (Date.now() + Math.random()).toString(),
-            sender: 'ai',
-            text: result,
-            timestamp: Date.now(),
-          }]);
-        }, 500);
-        return;
-      }
+    // Math calculation (Try evaluating first if it looks like math)
+    const mathResult = handleMathCalculation(text, aiState.mathScope);
+    if (mathResult) {
+       // Save any scope modifications
+       setAiState(prev => ({ ...prev, mathScope: { ...prev.mathScope } }));
+       setTimeout(() => {
+         setMessages(prev => [...prev, {
+           id: (Date.now() + Math.random()).toString(),
+           sender: 'ai',
+           text: mathResult,
+           timestamp: Date.now(),
+         }]);
+       }, 500);
+       return;
     }
 
     // Time query
@@ -510,7 +524,7 @@ export const useAIGrowth = () => {
         setMessages(prev => [...prev, {
           id: (Date.now() + Math.random()).toString(),
           sender: 'ai',
-          text: `私は高度な対話型AIです。日常会話から、ウェブ検索、しりとりやじゃんけんなどのゲーム、さらには簡単な計算や時間の確認まで、あなたの生活をサポートします。遠慮なく何でも聞いてくださいね。`,
+          text: `私は高度な対話型AIです。日常会話から、ウェブ検索、しりとりやじゃんけんなどのゲーム、さらには高度な数学の計算（平方根、代数など）や時間の確認まで、あなたの生活をサポートします。遠慮なく何でも聞いてくださいね。`,
           timestamp: Date.now(),
         }]);
       }, 500);
@@ -569,7 +583,7 @@ export const useAIGrowth = () => {
         timestamp: Date.now(),
       }
     ]);
-    setAiState({ memory: [], mode: 'normal', shiritoriLastWord: '', shiritoriUsedWords: [] });
+    setAiState({ memory: [], mode: 'normal', shiritoriLastWord: '', shiritoriUsedWords: [], mathScope: {} });
   };
 
   return {
